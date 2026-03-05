@@ -1,56 +1,84 @@
 $imageUrl = "https://raw.githubusercontent.com/kolomka-cpu/elka/refs/heads/main/m.jpeg"
 $imagePath = "$env:TEMP\wallpaper.jpg"
-$scriptPath = "$env:TEMP\apply_wallpaper.ps1"
 
 try {
     Write-Host "Loading..." -ForegroundColor Yellow
     Invoke-WebRequest -Uri $imageUrl -OutFile $imagePath -UseBasicParsing
 
-    Write-Host "Creating apply script..." -ForegroundColor Yellow
+    Write-Host "Setting wallpaper via C#..." -ForegroundColor Yellow
 
-    # Создаём скрипт для применения (с правильным экранированием)
-    @"
-`$imagePath = "$imagePath"
-
-# Установка через реестр
-Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "Wallpaper" -Value `$imagePath -Type String -Force
-Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "WallpaperStyle" -Value "2" -Type String -Force
-Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "TileWallpaper" -Value "0" -Type String -Force
-
-# Добавляем WinAPI функцию
-Add-Type -TypeDefinition @"
+    $csharpCode = @"
 using System;
 using System.Runtime.InteropServices;
-public class WallpaperApplier {
+using Microsoft.Win32;
+
+public class WallpaperManager
+{
     [DllImport("user32.dll", CharSet = CharSet.Auto)]
-    public static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
+    private static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
+    
+    [DllImport("user32.dll")]
+    private static extern bool EnumWindows(EnumWindowsProc enumProc, IntPtr lParam);
+    
+    [DllImport("user32.dll")]
+    private static extern int GetWindowThreadProcessId(IntPtr hWnd, out int processId);
+    
+    [DllImport("user32.dll")]
+    private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+    
+    private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+    
+    private const uint WM_SETTINGCHANGE = 0x001A;
+    private const int SPI_SETDESKWALLPAPER = 20;
+    private const int SPIF_UPDATEINIFILE = 0x01;
+    private const int SPIF_SENDCHANGE = 0x02;
+
+    public static void SetWallpaperForAllUsers(string imagePath)
+    {
+        // 1. Устанавливаем в реестр текущего пользователя
+        using (RegistryKey key = Registry.CurrentUser.OpenSubKey(@"Control Panel\Desktop", true))
+        {
+            if (key != null)
+            {
+                key.SetValue("Wallpaper", imagePath, RegistryValueKind.String);
+                key.SetValue("WallpaperStyle", "2", RegistryValueKind.String); // Stretch
+                key.SetValue("TileWallpaper", "0", RegistryValueKind.String);
+            }
+        }
+
+        // 2. Применяем через SystemParametersInfo
+        SystemParametersInfo(SPI_SETDESKWALLPAPER, 0, imagePath, 
+                            SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
+
+        // 3. Пытаемся найти explorer и заставить его обновиться
+        EnumWindows((hWnd, lParam) =>
+        {
+            GetWindowThreadProcessId(hWnd, out int processId);
+            if (processId > 0)
+            {
+                try
+                {
+                    System.Diagnostics.Process proc = System.Diagnostics.Process.GetProcessById(processId);
+                    if (proc.ProcessName.Equals("explorer", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Посылаем сообщение об обновлении настроек
+                        PostMessage(hWnd, WM_SETTINGCHANGE, IntPtr.Zero, IntPtr.Zero);
+                    }
+                }
+                catch { }
+            }
+            return true;
+        }, IntPtr.Zero);
+    }
 }
 "@
 
-# Применяем обои
-[WallpaperApplier]::SystemParametersInfo(20, 0, `$imagePath, 3)
+    Add-Type -TypeDefinition $csharpCode -Language CSharp
+    [WallpaperManager]::SetWallpaperForAllUsers($imagePath)
 
-Write-Host "Wallpaper applied in user session!" -ForegroundColor Green
-"@ | Out-File $scriptPath -Encoding ASCII
-
-    Write-Host "Creating scheduled task..." -ForegroundColor Yellow
-
-    # Получаем имя текущего пользователя
-    $currentUser = (Get-CimInstance -ClassName Win32_ComputerSystem).UserName
-
-    # Создаём задание в планировщике
-    $taskName = "ApplyWallpaperTask_$(Get-Random)"
-    $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
-    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $currentUser
-    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
-    $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Limited
-
-    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force
-
-    Write-Host "Task created. It will apply at next user logon." -ForegroundColor Green
-    Write-Host "Task name: $taskName" -ForegroundColor Cyan
+    Write-Host "Done! Wallpaper should now be set." -ForegroundColor Green
+    Write-Host "If not visible, try restarting explorer or logging off/on." -ForegroundColor Yellow
 }
 catch {
     Write-Host "Error: $_" -ForegroundColor Red
-    Write-Host "Line: $($_.InvocationInfo.ScriptLineNumber)" -ForegroundColor Red
 }
