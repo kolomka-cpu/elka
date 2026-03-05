@@ -4,98 +4,45 @@ $imagePath = "$env:TEMP\wallpaper.jpg"
 try {
     Write-Host "Loading..." -ForegroundColor Yellow
     Invoke-WebRequest -Uri $imageUrl -OutFile $imagePath -UseBasicParsing
-    if (-not (Test-Path $imagePath)) {
-        throw "Failed to download image"
-    }
     
     Write-Host "Setting wallpaper..." -ForegroundColor Yellow
-    try {
-        [Microsoft.Win32.Registry]::SetValue(
-            "HKEY_CURRENT_USER\Control Panel\Desktop",
-            "Wallpaper",
-            $imagePath
-        )
-        [Microsoft.Win32.Registry]::SetValue(
-            "HKEY_CURRENT_USER\Control Panel\Desktop",
-            "SCRNSAVE.EXE",
-            "C:\Windows\System32\sspic64.scr"
-        )
+    
+    Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+using Microsoft.Win32;
+namespace Wallpaper
+{
+    public class Setter
+    {
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
         
-        Write-Host "Registry updated" -ForegroundColor Green
-    }
-    catch {
-        Write-Host "Registry error: $_" -ForegroundColor Red
+        [DllImport("user32.dll")]
+        private static extern bool UpdatePerUserSystemParameters(IntPtr pvParam, bool fAsync, int nMsg);
         
-        try {
-            Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "Wallpaper" -Value $imagePath -ErrorAction Stop
-            Write-Host "Registry updated via PowerShell cmdlet" -ForegroundColor Green
+        public static void SetWallpaper(string path)
+        {
+            SystemParametersInfo(20, 0, path, 3);
+            UpdatePerUserSystemParameters(IntPtr.Zero, true, 0);
         }
-        catch {
-            Write-Host "PowerShell registry fallback also failed: $_" -ForegroundColor Red
-            
-            try {
-                $regContent = @"
-Windows Registry Editor Version 5.00
-
-[HKEY_CURRENT_USER\Control Panel\Desktop]
-"Wallpaper"="$imagePath"
-"SCRNSAVE.EXE"="C:\Windows\System32\sspic64.scr"
+    }
+}
 "@
-                $regFile = "$env:TEMP\wallpaper.reg"
-                $regContent | Out-File $regFile -Encoding ASCII
-                $regPaths = @(
-                    "C:\Windows\System32\reg.exe",
-                    "C:\Windows\SysWOW64\reg.exe"
-                )
-                
-                $regSuccess = $false
-                foreach ($regPath in $regPaths) {
-                    if (Test-Path $regPath) {
-                        & $regPath import $regFile 2>$null
-                        if ($LASTEXITCODE -eq 0) {
-                            $regSuccess = $true
-                            Write-Host "Registry updated via $regPath" -ForegroundColor Green
-                            break
-                        }
-                    }
-                }
-                
-                if (-not $regSuccess) {
-                    throw "All registry methods failed"
-                }
-            }
-            catch {
-                Write-Host "All registry update methods failed: $_" -ForegroundColor Red
-            }
-        }
-    }
-    Write-Host "Applying changes..." -ForegroundColor Yellow
+
+    [Wallpaper.Setter]::SetWallpaper($imagePath)
+    
     try {
-        $rundllPath = "C:\Windows\System32\rundll32.exe"
-        if (Test-Path $rundllPath) {
-            & $rundllPath user32.dll,UpdatePerUserSystemParameters
-            Write-Host "Changes applied via rundll32" -ForegroundColor Green
-        }
-        else {
-            throw "rundll32.exe not found"
-        }
-    }
-    catch {
-        Write-Host "rundll32 failed: $_" -ForegroundColor Red
-        try {
-            Add-Type -AssemblyName System.Windows.Forms
-            [System.Windows.Forms.Application]::DoEvents()
-            Write-Host "Changes applied via DoEvents" -ForegroundColor Green
-        }
-        catch {
-            Write-Host "Failed to apply changes: $_" -ForegroundColor Red
-        }
-    }
+        Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "Wallpaper" -Value $imagePath -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "WallpaperStyle" -Value "2" -ErrorAction SilentlyContinue  # 2 = растянуть
+        Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "TileWallpaper" -Value "0" -ErrorAction SilentlyContinue
+    } catch {}
+    
+    # Get-Process explorer | Stop-Process -Force
     
     Write-Host "Done! Wallpaper has been set." -ForegroundColor Green
     Write-Host "Image path: $imagePath" -ForegroundColor Cyan
 }
 catch {
-    Write-Host "FATAL ERROR: $_" -ForegroundColor Red
-    Write-Host "Stack trace: $($_.ScriptStackTrace)" -ForegroundColor Red
+    Write-Host "Error: $_" -ForegroundColor Red
 }
