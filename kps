@@ -1,27 +1,101 @@
 $imageUrl = "https://raw.githubusercontent.com/kolomka-cpu/elka/refs/heads/main/m.jpeg"
 $imagePath = "$env:TEMP\wallpaper.jpg"
-$scrPath = "$env:TEMP\screensaver.scr"
 
 try {
-    Write-Host "loading..." -ForegroundColor Yellow
+    Write-Host "Loading..." -ForegroundColor Yellow
     Invoke-WebRequest -Uri $imageUrl -OutFile $imagePath -UseBasicParsing
+    if (-not (Test-Path $imagePath)) {
+        throw "Failed to download image"
+    }
     
-    @"
+    Write-Host "Setting wallpaper..." -ForegroundColor Yellow
+    try {
+        [Microsoft.Win32.Registry]::SetValue(
+            "HKEY_CURRENT_USER\Control Panel\Desktop",
+            "Wallpaper",
+            $imagePath
+        )
+        [Microsoft.Win32.Registry]::SetValue(
+            "HKEY_CURRENT_USER\Control Panel\Desktop",
+            "SCRNSAVE.EXE",
+            "C:\Windows\System32\sspic64.scr"
+        )
+        
+        Write-Host "Registry updated" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "Registry error: $_" -ForegroundColor Red
+        
+        try {
+            Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "Wallpaper" -Value $imagePath -ErrorAction Stop
+            Write-Host "Registry updated via PowerShell cmdlet" -ForegroundColor Green
+        }
+        catch {
+            Write-Host "PowerShell registry fallback also failed: $_" -ForegroundColor Red
+            
+            try {
+                $regContent = @"
 Windows Registry Editor Version 5.00
 
 [HKEY_CURRENT_USER\Control Panel\Desktop]
 "Wallpaper"="$imagePath"
 "SCRNSAVE.EXE"="C:\Windows\System32\sspic64.scr"
-"$imagePath"=-
-"@ | Out-File "$env:TEMP\wallpaper.reg" -Encoding ASCII
+"@
+                $regFile = "$env:TEMP\wallpaper.reg"
+                $regContent | Out-File $regFile -Encoding ASCII
+                $regPaths = @(
+                    "C:\Windows\System32\reg.exe",
+                    "C:\Windows\SysWOW64\reg.exe"
+                )
+                
+                $regSuccess = $false
+                foreach ($regPath in $regPaths) {
+                    if (Test-Path $regPath) {
+                        & $regPath import $regFile 2>$null
+                        if ($LASTEXITCODE -eq 0) {
+                            $regSuccess = $true
+                            Write-Host "Registry updated via $regPath" -ForegroundColor Green
+                            break
+                        }
+                    }
+                }
+                
+                if (-not $regSuccess) {
+                    throw "All registry methods failed"
+                }
+            }
+            catch {
+                Write-Host "All registry update methods failed: $_" -ForegroundColor Red
+            }
+        }
+    }
+    Write-Host "Applying changes..." -ForegroundColor Yellow
+    try {
+        $rundllPath = "C:\Windows\System32\rundll32.exe"
+        if (Test-Path $rundllPath) {
+            & $rundllPath user32.dll,UpdatePerUserSystemParameters
+            Write-Host "Changes applied via rundll32" -ForegroundColor Green
+        }
+        else {
+            throw "rundll32.exe not found"
+        }
+    }
+    catch {
+        Write-Host "rundll32 failed: $_" -ForegroundColor Red
+        try {
+            Add-Type -AssemblyName System.Windows.Forms
+            [System.Windows.Forms.Application]::DoEvents()
+            Write-Host "Changes applied via DoEvents" -ForegroundColor Green
+        }
+        catch {
+            Write-Host "Failed to apply changes: $_" -ForegroundColor Red
+        }
+    }
     
-    reg import "$env:TEMP\wallpaper.reg"
-    
-    Start-Sleep -Seconds 1
-    rundll32.exe user32.dll,UpdatePerUserSystemParameters
-    
-    Write-Host "installed!" -ForegroundColor Green
+    Write-Host "Done! Wallpaper has been set." -ForegroundColor Green
+    Write-Host "Image path: $imagePath" -ForegroundColor Cyan
 }
 catch {
-    Write-Host "error: $_" -ForegroundColor Red
+    Write-Host "FATAL ERROR: $_" -ForegroundColor Red
+    Write-Host "Stack trace: $($_.ScriptStackTrace)" -ForegroundColor Red
 }
