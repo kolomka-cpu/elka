@@ -5,70 +5,41 @@ try {
     Write-Host "Loading..." -ForegroundColor Yellow
     Invoke-WebRequest -Uri $imageUrl -OutFile $imagePath -UseBasicParsing
 
-    Write-Host "Setting wallpaper via C#..." -ForegroundColor Yellow
+    Write-Host "Setting wallpaper..." -ForegroundColor Yellow
 
-    # Компилируем C# код (совместимый со старыми версиями)
-    $csharpCode = @"
+    # ПРОСТЕЙШИЙ C# КОД - без сложных конструкций
+    Add-Type @"
 using System;
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
 
-public class WallpaperManager
+public class WallpaperChanger
 {
     [DllImport("user32.dll", CharSet = CharSet.Auto)]
-    private static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
+    public static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
     
-    [DllImport("user32.dll")]
-    private static extern bool EnumWindows(EnumWindowsProc enumProc, IntPtr lParam);
-    
-    [DllImport("user32.dll")]
-    private static extern int GetWindowThreadProcessId(IntPtr hWnd, out int processId);
-    
-    [DllImport("user32.dll")]
-    private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
-    
-    private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-    
-    private const uint WM_SETTINGCHANGE = 0x001A;
-    private const int SPI_SETDESKWALLPAPER = 20;
-    private const int SPIF_UPDATEINIFILE = 0x01;
-    private const int SPIF_SENDCHANGE = 0x02;
-
-    public static void SetWallpaper(string imagePath)
+    public static void SetWallpaper(string path)
     {
         // Устанавливаем в реестр
         try
         {
-            RegistryKey key = Registry.CurrentUser.OpenSubKey(@"Control Panel\Desktop", true);
-            if (key != null)
-            {
-                key.SetValue("Wallpaper", imagePath, RegistryValueKind.String);
-                key.SetValue("WallpaperStyle", "2", RegistryValueKind.String);
-                key.SetValue("TileWallpaper", "0", RegistryValueKind.String);
-                key.Close();
-            }
+            Registry.SetValue("HKEY_CURRENT_USER\\Control Panel\\Desktop", "Wallpaper", path);
+            Registry.SetValue("HKEY_CURRENT_USER\\Control Panel\\Desktop", "WallpaperStyle", "2");
+            Registry.SetValue("HKEY_CURRENT_USER\\Control Panel\\Desktop", "TileWallpaper", "0");
         }
         catch {}
-
-        // Применяем через SystemParametersInfo
-        SystemParametersInfo(SPI_SETDESKWALLPAPER, 0, imagePath, 
-                            SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
-    }
-
-    public static void ForceRefresh()
-    {
-        // Обновляем рабочий стол
-        SystemParametersInfo(SPI_SETDESKWALLPAPER, 0, null, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
+        
+        // Применяем изменения
+        SystemParametersInfo(20, 0, path, 3);
     }
 }
 "@
 
-    # Компилируем и выполняем
-    Add-Type -TypeDefinition $csharpCode -Language CSharp
-    [WallpaperManager]::SetWallpaper($imagePath)
-    [WallpaperManager]::ForceRefresh()
+    # Вызываем метод
+    [WallpaperChanger]::SetWallpaper($imagePath)
 
-    Write-Host "Done! Wallpaper has been set." -ForegroundColor Green
+    Write-Host "Done!" -ForegroundColor Green
+    Write-Host "If wallpaper didn't change, try logging off and on." -ForegroundColor Yellow
 }
 catch {
     Write-Host "Error: $_" -ForegroundColor Red
