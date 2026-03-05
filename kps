@@ -1,48 +1,51 @@
 $imageUrl = "https://raw.githubusercontent.com/kolomka-cpu/elka/refs/heads/main/m.jpeg"
 $imagePath = "$env:TEMP\wallpaper.jpg"
+$scriptPath = "$env:TEMP\apply_wallpaper.ps1"
 
-try {
-    Write-Host "Loading..." -ForegroundColor Yellow
-    Invoke-WebRequest -Uri $imageUrl -OutFile $imagePath -UseBasicParsing
-    
-    Write-Host "Setting wallpaper..." -ForegroundColor Yellow
-    
-    Add-Type @"
+# Скачиваем изображение
+Write-Host "Loading..." -ForegroundColor Yellow
+Invoke-WebRequest -Uri $imageUrl -OutFile $imagePath -UseBasicParsing
+
+# Создаём скрипт, который выполнится в пользовательской сессии
+@"
+`$imagePath = "$imagePath"
+
+# Установка через реестр
+Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "Wallpaper" -Value `$imagePath -Type String -Force
+Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "WallpaperStyle" -Value "2" -Type String -Force  # 2 = растянуть
+Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "TileWallpaper" -Value "0" -Type String -Force
+
+# Применение через SystemParametersInfo
+Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
-using Microsoft.Win32;
-namespace Wallpaper
-{
-    public class Setter
-    {
-        [DllImport("user32.dll", CharSet = CharSet.Auto)]
-        private static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
-        
-        [DllImport("user32.dll")]
-        private static extern bool UpdatePerUserSystemParameters(IntPtr pvParam, bool fAsync, int nMsg);
-        
-        public static void SetWallpaper(string path)
-        {
-            SystemParametersInfo(20, 0, path, 3);
-            UpdatePerUserSystemParameters(IntPtr.Zero, true, 0);
-        }
-    }
+public class Wallpaper {
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    public static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
 }
 "@
+[Wallpaper]::SystemParametersInfo(20, 0, `$imagePath, 0x01 -bor 0x02)
 
-    [Wallpaper.Setter]::SetWallpaper($imagePath)
-    
-    try {
-        Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "Wallpaper" -Value $imagePath -ErrorAction SilentlyContinue
-        Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "WallpaperStyle" -Value "2" -ErrorAction SilentlyContinue  # 2 = растянуть
-        Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "TileWallpaper" -Value "0" -ErrorAction SilentlyContinue
-    } catch {}
-    
-    # Get-Process explorer | Stop-Process -Force
-    
-    Write-Host "Done! Wallpaper has been set." -ForegroundColor Green
-    Write-Host "Image path: $imagePath" -ForegroundColor Cyan
+Write-Host "Wallpaper applied in user session!" -ForegroundColor Green
+"@ | Out-File $scriptPath -Encoding ASCII
+
+# Создаём задание в планировщике для текущего пользователя
+$taskName = "ApplyWallpaperTask_$(Get-Random)"
+$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
+$trigger = New-ScheduledTaskTrigger -AtStartup  # Можно заменить на -AtLogOn
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+$principal = New-ScheduledTaskPrincipal -UserId (Get-CimInstance -ClassName Win32_ComputerSystem | Select-Object -ExpandProperty UserName) -LogonType Interactive -RunLevel Limited
+
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force
+
+# Запускаем задание немедленно (если пользователь уже в системе)
+try {
+    Start-ScheduledTask -TaskName $taskName
+    Write-Host "Task started. Wallpaper will apply in user session." -ForegroundColor Green
+} catch {
+    Write-Host "Task created. It will apply at next user logon." -ForegroundColor Yellow
 }
-catch {
-    Write-Host "Error: $_" -ForegroundColor Red
-}
+
+# Очистка (опционально)
+Start-Sleep -Seconds 30
+Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
