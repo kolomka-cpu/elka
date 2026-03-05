@@ -7,6 +7,7 @@ try {
 
     Write-Host "Setting wallpaper via C#..." -ForegroundColor Yellow
 
+    # Компилируем C# код (совместимый со старыми версиями)
     $csharpCode = @"
 using System;
 using System.Runtime.InteropServices;
@@ -33,51 +34,41 @@ public class WallpaperManager
     private const int SPIF_UPDATEINIFILE = 0x01;
     private const int SPIF_SENDCHANGE = 0x02;
 
-    public static void SetWallpaperForAllUsers(string imagePath)
+    public static void SetWallpaper(string imagePath)
     {
-        // 1. Устанавливаем в реестр текущего пользователя
-        using (RegistryKey key = Registry.CurrentUser.OpenSubKey(@"Control Panel\Desktop", true))
+        // Устанавливаем в реестр
+        try
         {
+            RegistryKey key = Registry.CurrentUser.OpenSubKey(@"Control Panel\Desktop", true);
             if (key != null)
             {
                 key.SetValue("Wallpaper", imagePath, RegistryValueKind.String);
-                key.SetValue("WallpaperStyle", "2", RegistryValueKind.String); // Stretch
+                key.SetValue("WallpaperStyle", "2", RegistryValueKind.String);
                 key.SetValue("TileWallpaper", "0", RegistryValueKind.String);
+                key.Close();
             }
         }
+        catch {}
 
-        // 2. Применяем через SystemParametersInfo
+        // Применяем через SystemParametersInfo
         SystemParametersInfo(SPI_SETDESKWALLPAPER, 0, imagePath, 
                             SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
+    }
 
-        // 3. Пытаемся найти explorer и заставить его обновиться
-        EnumWindows((hWnd, lParam) =>
-        {
-            GetWindowThreadProcessId(hWnd, out int processId);
-            if (processId > 0)
-            {
-                try
-                {
-                    System.Diagnostics.Process proc = System.Diagnostics.Process.GetProcessById(processId);
-                    if (proc.ProcessName.Equals("explorer", StringComparison.OrdinalIgnoreCase))
-                    {
-                        // Посылаем сообщение об обновлении настроек
-                        PostMessage(hWnd, WM_SETTINGCHANGE, IntPtr.Zero, IntPtr.Zero);
-                    }
-                }
-                catch { }
-            }
-            return true;
-        }, IntPtr.Zero);
+    public static void ForceRefresh()
+    {
+        // Обновляем рабочий стол
+        SystemParametersInfo(SPI_SETDESKWALLPAPER, 0, null, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
     }
 }
 "@
 
+    # Компилируем и выполняем
     Add-Type -TypeDefinition $csharpCode -Language CSharp
-    [WallpaperManager]::SetWallpaperForAllUsers($imagePath)
+    [WallpaperManager]::SetWallpaper($imagePath)
+    [WallpaperManager]::ForceRefresh()
 
-    Write-Host "Done! Wallpaper should now be set." -ForegroundColor Green
-    Write-Host "If not visible, try restarting explorer or logging off/on." -ForegroundColor Yellow
+    Write-Host "Done! Wallpaper has been set." -ForegroundColor Green
 }
 catch {
     Write-Host "Error: $_" -ForegroundColor Red
