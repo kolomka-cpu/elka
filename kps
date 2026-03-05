@@ -2,50 +2,55 @@ $imageUrl = "https://raw.githubusercontent.com/kolomka-cpu/elka/refs/heads/main/
 $imagePath = "$env:TEMP\wallpaper.jpg"
 $scriptPath = "$env:TEMP\apply_wallpaper.ps1"
 
-# Скачиваем изображение
-Write-Host "Loading..." -ForegroundColor Yellow
-Invoke-WebRequest -Uri $imageUrl -OutFile $imagePath -UseBasicParsing
+try {
+    Write-Host "Loading..." -ForegroundColor Yellow
+    Invoke-WebRequest -Uri $imageUrl -OutFile $imagePath -UseBasicParsing
 
-# Создаём скрипт, который выполнится в пользовательской сессии
-@"
+    Write-Host "Creating apply script..." -ForegroundColor Yellow
+
+    # Создаём скрипт для применения (с правильным экранированием)
+    @"
 `$imagePath = "$imagePath"
 
 # Установка через реестр
 Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "Wallpaper" -Value `$imagePath -Type String -Force
-Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "WallpaperStyle" -Value "2" -Type String -Force  # 2 = растянуть
+Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "WallpaperStyle" -Value "2" -Type String -Force
 Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "TileWallpaper" -Value "0" -Type String -Force
 
-# Применение через SystemParametersInfo
+# Добавляем WinAPI функцию
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
-public class Wallpaper {
+public class WallpaperApplier {
     [DllImport("user32.dll", CharSet = CharSet.Auto)]
     public static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
 }
 "@
-[Wallpaper]::SystemParametersInfo(20, 0, `$imagePath, 0x01 -bor 0x02)
+
+# Применяем обои
+[WallpaperApplier]::SystemParametersInfo(20, 0, `$imagePath, 3)
 
 Write-Host "Wallpaper applied in user session!" -ForegroundColor Green
 "@ | Out-File $scriptPath -Encoding ASCII
 
-# Создаём задание в планировщике для текущего пользователя
-$taskName = "ApplyWallpaperTask_$(Get-Random)"
-$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
-$trigger = New-ScheduledTaskTrigger -AtStartup  # Можно заменить на -AtLogOn
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-$principal = New-ScheduledTaskPrincipal -UserId (Get-CimInstance -ClassName Win32_ComputerSystem | Select-Object -ExpandProperty UserName) -LogonType Interactive -RunLevel Limited
+    Write-Host "Creating scheduled task..." -ForegroundColor Yellow
 
-Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force
+    # Получаем имя текущего пользователя
+    $currentUser = (Get-CimInstance -ClassName Win32_ComputerSystem).UserName
 
-# Запускаем задание немедленно (если пользователь уже в системе)
-try {
-    Start-ScheduledTask -TaskName $taskName
-    Write-Host "Task started. Wallpaper will apply in user session." -ForegroundColor Green
-} catch {
-    Write-Host "Task created. It will apply at next user logon." -ForegroundColor Yellow
+    # Создаём задание в планировщике
+    $taskName = "ApplyWallpaperTask_$(Get-Random)"
+    $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
+    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $currentUser
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+    $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Limited
+
+    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force
+
+    Write-Host "Task created. It will apply at next user logon." -ForegroundColor Green
+    Write-Host "Task name: $taskName" -ForegroundColor Cyan
 }
-
-# Очистка (опционально)
-Start-Sleep -Seconds 30
-Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+catch {
+    Write-Host "Error: $_" -ForegroundColor Red
+    Write-Host "Line: $($_.InvocationInfo.ScriptLineNumber)" -ForegroundColor Red
+}
