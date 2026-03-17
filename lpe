@@ -1,4 +1,4 @@
-$imageUrl = "https://raw.githubusercontent.com/kolomka-cpu/elka/refs/heads/main/m.jpeg"
+$imageUrl = "https://raw.githubusercontent.com/kolomka-cpu/elka/refs/heads/main/sae.png"
 $imagePath = "$env:TEMP\wallpaper.jpg"
 
 try {
