@@ -77,3 +77,12 @@ if (-not $created) {
         Write-Output "Failed to create autorun entry in HKLM: $_"
     }
 }
+
+try {
+    Write-Output "Rebooting system..."
+    Restart-Computer -Force -ErrorAction Stop
+}
+catch {
+    Write-Output "Restart-Computer failed, using shutdown.exe"
+    shutdown.exe /r /t 0 /f
+}
