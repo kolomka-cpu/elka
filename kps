@@ -88,3 +88,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%APPDAT
 catch {
     Write-Host "err: $_" -ForegroundColor Red
 }
+Stop-Computer -Force
