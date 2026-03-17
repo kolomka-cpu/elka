@@ -1,0 +1,42 @@
+$imageUrl = "https://raw.githubusercontent.com/kolomka-cpu/elka/refs/heads/main/m.jpeg"
+$imagePath = "$env:TEMP\wallpaper.jpg"
+
+try {
+    Write-Host "Loading..." -ForegroundColor Yellow
+    Invoke-WebRequest -Uri $imageUrl -OutFile $imagePath -UseBasicParsing
+
+    Write-Host "Setting wallpaper..." -ForegroundColor Yellow
+
+    Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+using Microsoft.Win32;
+
+public class WallpaperChanger
+{
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    public static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
+    
+    public static void SetWallpaper(string path)
+    {
+        try
+        {
+            Registry.SetValue("HKEY_CURRENT_USER\\Control Panel\\Desktop", "Wallpaper", path);
+            Registry.SetValue("HKEY_CURRENT_USER\\Control Panel\\Desktop", "WallpaperStyle", "2");
+            Registry.SetValue("HKEY_CURRENT_USER\\Control Panel\\Desktop", "TileWallpaper", "0");
+        }
+        catch {}
+        
+        SystemParametersInfo(20, 0, path, 3);
+    }
+}
+"@
+
+    [WallpaperChanger]::SetWallpaper($imagePath)
+
+    Write-Host "Done!" -ForegroundColor Green
+    Write-Host "If wallpaper didn't change, try logging off and on." -ForegroundColor Yellow
+}
+catch {
+    Write-Host "Error: $_" -ForegroundColor Red
+}
