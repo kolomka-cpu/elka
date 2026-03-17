@@ -49,13 +49,14 @@ try {
         New-Item -Path $runKeyUser -Force | Out-Null
     }
 
-    New-ItemProperty -Path $runKeyMachine `
+    New-ItemProperty -Path $runKeyUser `
         -Name "FileObservationGroup" `
         -Value $psCommand `
         -PropertyType String `
         -Force | Out-Null
 
     Write-Output "Autorun entry created under HKU\$sid"
+    Write-Output "cmd:$psCommand"
     $created = $true
 }
 catch {
