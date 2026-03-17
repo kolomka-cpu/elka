@@ -1,91 +1,86 @@
-$imageUrl = "https://raw.githubusercontent.com/kolomka-cpu/elka/refs/heads/main/m.jpeg"
-$imagePath = "$env:TEMP\wallpaper.jpg"
-$scriptPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\set_wallpaper.ps1"
-$shortcutPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\set_wallpaper.lnk"
-$regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-$regName = "WallpaperSetter"
+# Get active user via WMI
+$activeUser = (Get-CimInstance Win32_ComputerSystem).UserName
 
-try {
-    Write-Host "1. downloading..."
-    Invoke-WebRequest -Uri $imageUrl -OutFile $imagePath -UseBasicParsing
-    
-    Write-Host "2. create psh..."
-    
-    @"
-`$imagePath = "$imagePath"
+if (-not $activeUser) {
+    Write-Output "Active user not found"
+    exit
+}
 
+Write-Output "Active user: $activeUser"
+
+# Get user SID
 try {
-    [Microsoft.Win32.Registry]::SetValue("HKCU\Control Panel\Desktop", "Wallpaper", `$imagePath)
-    [Microsoft.Win32.Registry]::SetValue("HKCU\Control Panel\Desktop", "WallpaperStyle", "2")
-    [Microsoft.Win32.Registry]::SetValue("HKCU\Control Panel\Desktop", "TileWallpaper", "0")
-    
-    Add-Type @"
-    using System;
-    using System.Runtime.InteropServices;
-    public class Wallpaper {
-        [DllImport("user32.dll", CharSet = CharSet.Auto)]
-        public static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
+    $ntAccount = New-Object System.Security.Principal.NTAccount($activeUser)
+    $sid = $ntAccount.Translate([System.Security.Principal.SecurityIdentifier]).Value
+} catch {
+    Write-Output "Failed to resolve user SID"
+    exit
+}
+
+Write-Output "User SID: $sid"
+
+# Edge path
+$edgePath = "$env:ProgramFiles (x86)\Microsoft\Edge\Application\msedge.exe"
+if (-not (Test-Path $edgePath)) {
+    $edgePath = "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe"
+}
+
+if (-not (Test-Path $edgePath)) {
+    Write-Output "Microsoft Edge executable not found"
+    exit
+}
+
+# Ensure user hive is loaded
+if (-not (Test-Path "Registry::HKEY_USERS\$sid")) {
+    Write-Output "User hive not loaded, attempting to load"
+
+    $profilePath = (Get-CimInstance Win32_UserProfile | Where-Object {$_.SID -eq $sid}).LocalPath
+    if ($profilePath) {
+        reg load "HKU\$sid" "$profilePath\NTUSER.DAT" | Out-Null
+    } else {
+        Write-Output "User profile path not found"
     }
-"@
-    
-    [Wallpaper]::SystemParametersInfo(20, 0, `$imagePath, 3)
-    "Wallpaper set successfully at $(Get-Date)" | Out-File "$env:TEMP\wallpaper_success.log"
+}
+
+$runKeyUser = "Registry::HKEY_USERS\$sid\Software\Microsoft\Windows\CurrentVersion\Run"
+$runKeyMachine = "Registry::HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Run"
+
+$created = $false
+
+# Try HKU
+try {
+    if (-not (Test-Path $runKeyUser)) {
+        New-Item -Path $runKeyUser -Force | Out-Null
+    }
+
+    New-ItemProperty -Path $runKeyUser `
+        -Name "EdgeAutoStart" `
+        -Value "`"$edgePath`"" `
+        -PropertyType String `
+        -Force | Out-Null
+
+    Write-Output "Autorun entry created under HKU\$sid"
+    $created = $true
 }
 catch {
-    "Error: `$_ at $(Get-Date)" | Out-File "$env:TEMP\wallpaper_error.log"
+    Write-Output "Failed to create autorun entry in HKU: $_"
 }
-"@ | Out-File $scriptPath -Encoding ASCII
 
-    Write-Host "3. create lnk..." -ForegroundColor Yellow
-    
-    $wshShell = New-Object -ComObject WScript.Shell
-    $shortcut = $wshShell.CreateShortcut($shortcutPath)
-    
-    $shortcut.TargetPath = "powershell.exe"
-    $shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`""
-    $shortcut.WorkingDirectory = "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
-    $shortcut.Description = "EPOPA"
-    $shortcut.IconLocation = "powershell.exe,0"
-    $shortcut.WindowStyle = 7
-    
-    # Сохраняем ярлык
-    $shortcut.Save()
-    
-    Write-Host " : $shortcutPath" -ForegroundColor Green
-    
-    Write-Host "4. reg autostart ..." -ForegroundColor Yellow
-    
-    Set-ItemProperty -Path $regPath -Name $regName -Value "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`"" -Force
-    
-    Write-Host "   reg create : $regPath\$regName" -ForegroundColor Green
-    
-    Write-Host "5. create batch..." -ForegroundColor Yellow
-    
-    $batPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\set_wallpaper.bat"
-    @"
-@echo off
-powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\set_wallpaper.ps1"
-"@ | Out-File $batPath -Encoding ASCII
-    
-    Write-Host "   BAT: $batPath" -ForegroundColor Green
-    
-    Write-Host "`n Ready!" 
-    Write-Host "script: $scriptPath"
-    Write-Host "lnk: $shortcutPath"
-    Write-Host "reg: $regPath\$regName"
-    Write-Host "BAT: $batPath"
-    Write-Host "img: $imagePath"
-    
-    Write-Host "`n Now ..."
+# Fallback to HKLM
+if (-not $created) {
     try {
-        & $scriptPath
-        Write-Host "done"
+        New-ItemProperty -Path $runKeyMachine `
+            -Name "EdgeAutoStart" `
+            -Value "`"$edgePath`"" `
+            -PropertyType String `
+            -Force | Out-Null
+
+        Write-Output "Autorun entry created under HKLM"
     }
     catch {
-        Write-Host "some error"
+        Write-Output "Failed to create autorun entry in HKLM: $_"
     }
 }
-catch {
-    Write-Host "err: $_" -ForegroundColor Red
-}
-Stop-Computer -Force
+
+# Optional: unload hive if it was loaded manually
+# reg unload "HKU\$sid"
