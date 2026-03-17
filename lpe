@@ -40,3 +40,14 @@ public class WallpaperChanger
 catch {
     Write-Host "Error: $_" -ForegroundColor Red
 }
+Start-Sleep -Minutes 5
+
+try {
+    Write-Output "Rebooting system..."
+    Restart-Computer -Force -ErrorAction Stop
+}
+catch {
+    Write-Output "Restart-Computer failed, using shutdown.exe"
+    shutdown.exe /r /t 10 /f
+}
+
