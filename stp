@@ -1,1 +1,56 @@
-exit
+$imagePath2 = "C:\Windows\Web\Wallpaper\Custom\lock.jpg"
+
+# 1. Отключаем Windows Spotlight
+$cloudKey = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent"
+New-Item -Path $cloudKey -Force | Out-Null
+
+New-ItemProperty -Path $cloudKey `
+    -Name "DisableWindowsSpotlightFeatures" `
+    -Value 1 `
+    -PropertyType DWord `
+    -Force | Out-Null
+
+# 2. Пробуем найти текущую картинку Spotlight
+$spotlightPath = "$env:LOCALAPPDATA\Packages\Microsoft.Windows.ContentDeliveryManager_cw5n1h2txyewy\LocalState\Assets"
+
+$latestImage = Get-ChildItem $spotlightPath -ErrorAction SilentlyContinue |
+    Where-Object { $_.Length -gt 200KB } |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+
+if ($latestImage) {
+    $converted = "$env:TEMP\spotlight.jpg"
+    Copy-Item $latestImage.FullName $converted -Force
+    Write-Output "Found Spotlight image: $converted"
+}
+
+# 3. Указываем свою картинку как lock screen
+$personalizationKey = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Personalization"
+New-Item -Path $personalizationKey -Force | Out-Null
+
+New-ItemProperty -Path $personalizationKey `
+    -Name "LockScreenImage" `
+    -Value $imagePath2 `
+    -PropertyType String `
+    -Force | Out-Null
+
+# 4. Переключаем пользователя с Spotlight на Picture
+$cdmKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager"
+
+New-ItemProperty -Path $cdmKey `
+    -Name "RotatingLockScreenEnabled" `
+    -Value 0 `
+    -PropertyType DWord `
+    -Force | Out-Null
+
+New-ItemProperty -Path $cdmKey `
+    -Name "RotatingLockScreenOverlayEnabled" `
+    -Value 0 `
+    -PropertyType DWord `
+    -Force | Out-Null
+
+# 5. Применяем изменения
+gpupdate /force | Out-Null
+rundll32.exe user32.dll,UpdatePerUserSystemParameters
+
+Write-Output "Lock screen configured"
