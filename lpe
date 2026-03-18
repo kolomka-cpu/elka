@@ -1,9 +1,12 @@
 $imageUrl = "https://raw.githubusercontent.com/kolomka-cpu/elka/refs/heads/main/sae.png"
-$imagePath = "$env:TEMP\wallpaper.jpg"
+$imageUrl2 = "https://raw.githubusercontent.com/kolomka-cpu/elka/refs/heads/main/ptm.png"
+$imagePath = "$env:TEMP\wallpaper.png"
+$imagePath2 = "$env:TEMP\lockscreen.png"
 
 try {
     Write-Host "Loading..." -ForegroundColor Yellow
     Invoke-WebRequest -Uri $imageUrl -OutFile $imagePath -UseBasicParsing
+    Invoke-WebRequest -Uri $imageUrl2 -OutFile $imagePath2 -UseBasicParsing
 
     Write-Host "Setting wallpaper..." -ForegroundColor Yellow
 
@@ -36,10 +39,23 @@ public class WallpaperChanger
 
     Write-Host "Done!" -ForegroundColor Green
     Write-Host "If wallpaper didn't change, try logging off and on." -ForegroundColor Yellow
+
+
+    New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Personalization" -Force | Out-Null
+
+    New-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Personalization" `
+        -Name "LockScreenImage" `
+        -Value $imagePath2 `
+        -PropertyType String `
+        -Force | Out-Null
+
+    Write-Output "Lock screen image set"
 }
 catch {
     Write-Host "Error: $_" -ForegroundColor Red
 }
+
+
 [System.Threading.Thread]::Sleep(300000)
 
 try {
