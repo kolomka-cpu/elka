@@ -1,6 +1,5 @@
 $imagePath2 = "C:\Windows\Web\Wallpaper\Custom\lock.jpg"
 
-# 1. Отключаем Windows Spotlight
 $cloudKey = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent"
 New-Item -Path $cloudKey -Force | Out-Null
 
@@ -10,7 +9,6 @@ New-ItemProperty -Path $cloudKey `
     -PropertyType DWord `
     -Force | Out-Null
 
-# 2. Пробуем найти текущую картинку Spotlight
 $spotlightPath = "$env:LOCALAPPDATA\Packages\Microsoft.Windows.ContentDeliveryManager_cw5n1h2txyewy\LocalState\Assets"
 
 $latestImage = Get-ChildItem $spotlightPath -ErrorAction SilentlyContinue |
@@ -24,7 +22,6 @@ if ($latestImage) {
     Write-Output "Found Spotlight image: $converted"
 }
 
-# 3. Указываем свою картинку как lock screen
 $personalizationKey = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Personalization"
 New-Item -Path $personalizationKey -Force | Out-Null
 
@@ -34,7 +31,6 @@ New-ItemProperty -Path $personalizationKey `
     -PropertyType String `
     -Force | Out-Null
 
-# 4. Переключаем пользователя с Spotlight на Picture
 $cdmKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager"
 
 New-ItemProperty -Path $cdmKey `
@@ -49,7 +45,6 @@ New-ItemProperty -Path $cdmKey `
     -PropertyType DWord `
     -Force | Out-Null
 
-# 5. Применяем изменения
 gpupdate /force | Out-Null
 rundll32.exe user32.dll,UpdatePerUserSystemParameters
 
